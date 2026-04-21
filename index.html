@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador - Mapas de Karnaugh</title>
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --primary-hover: #4338CA;
+            --bg-color: #F9FAFB;
+            --card-bg: #FFFFFF;
+            --text-main: #1F2937;
+            --border-color: #E5E7EB;
+            --cell-bg: #F3F4F6;
+            --cell-selected: #C7D2FE;
+            --success: #10B981;
+            --error: #EF4444;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            width: 100%;
+            max-width: 800px;
+            text-align: center;
+        }
+
+        /* Vistas */
+        #menu-view, #game-view {
+            display: none;
+        }
+        #menu-view.active, #game-view.active {
+            display: block;
+        }
+
+        /* Botones */
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            margin: 0.5rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:hover { background-color: var(--primary-hover); }
+        button.secondary {
+            background-color: #6B7280;
+        }
+        button.secondary:hover { background-color: #4B5563; }
+
+        /* Estilos del Juego */
+        .score-board {
+            font-size: 1.25rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            color: var(--primary);
+        }
+
+        .expression-container {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 3rem; /* Margen amplio para evitar solapamiento */
+            padding: 1rem;
+            background-color: #EEF2FF;
+            border-radius: 8px;
+            display: inline-block;
+            letter-spacing: 2px;
+        }
+
+        /* Cuadrícula del Mapa */
+        .kmap-wrapper {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 2rem;
+            overflow-x: auto;
+        }
+
+        table {
+            border-collapse: collapse;
+            margin: 0 auto;
+        }
+
+        th, td {
+            border: 2px solid var(--border-color);
+            text-align: center;
+        }
+
+        /* Cabeceras de Gray Code */
+        th {
+            padding: 0.5rem;
+            font-weight: normal;
+            color: #6B7280;
+            font-size: 0.9rem;
+        }
+        
+        .var-label {
+            font-weight: bold;
+            color: var(--text-main);
+            font-size: 1.1rem;
+        }
+
+        /* Celdas interactivas */
+        td {
+            width: 80px;
+            height: 80px;
+            background-color: var(--cell-bg);
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        td:hover { background-color: #E0E7FF; }
+        
+        td.selected {
+            background-color: var(--cell-selected);
+            border-color: var(--primary);
+        }
+
+        .minterm-label {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #9CA3AF;
+            pointer-events: none; /* Para que el clic pase a la celda */
+        }
+        
+        td.selected .minterm-label {
+            color: var(--primary);
+        }
+
+        /* Feedback */
+        #feedback-msg {
+            margin-top: 1rem;
+            font-weight: bold;
+            min-height: 24px;
+        }
+        .text-success { color: var(--success); }
+        .text-error { color: var(--error); }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div id="menu-view" class="active">
+            <h1>Simulador de Mapas de Karnaugh</h1>
+            <p>Selecciona el número de variables para practicar:</p>
+            <button onclick="startGame(2)">Mapa 2 Variables (A, B)</button>
+            <button onclick="startGame(3)">Mapa 3 Variables (A, B, C)</button>
+            <button onclick="startGame(4)">Mapa 4 Variables (A, B, C, D)</button>
+        </div>
+
+        <div id="game-view">
+            <div class="score-board">Puntuación: <span id="score">0</span></div>
+            
+            <div class="expression-container" id="expression-display">
+                F(A,B) = ...
+            </div>
+
+            <div class="kmap-wrapper" id="kmap-container">
+                </div>
+
+            <div class="controls">
+                <button onclick="verifySelection()">Verificar Selección</button>
+                <button class="secondary" onclick="clearMap()">Limpiar Mapa</button>
+                <button class="secondary" onclick="showMenu()">Regresar al Menú</button>
+            </div>
+
+            <div id="feedback-msg"></div>
+        </div>
+    </div>
+
+    <script>
+        // ESTADO DE LA APLICACIÓN
+        let currentVars = 2;
+        let score = 0;
+        let targetMinterms = [];
+        let selectedMinterms = new Set();
+
+        // CONFIGURACIÓN DE LOS MAPAS (Orden de Código Gray)
+        const layouts = {
+            2: {
+                cols: ['0', '1'], rows: ['0', '1'],
+                colLabel: 'B', rowLabel: 'A',
+                grid: [[0, 1], [2, 3]]
+            },
+            3: {
+                cols: ['00', '01', '11', '10'], rows: ['0', '1'],
+                colLabel: 'BC', rowLabel: 'A',
+                grid: [[0, 1, 3, 2], [4, 5, 7, 6]]
+            },
+            4: {
+                cols: ['00', '01', '11', '10'], rows: ['00', '01', '11', '10'],
+                colLabel: 'CD', rowLabel: 'AB',
+                grid: [
+                    [0, 1, 3, 2],
+                    [4, 5, 7, 6],
+                    [12, 13, 15, 14],
+                    [8, 9, 11, 10]
+                ]
+            }
+        };
+
+        // NAVEGACIÓN
+        function showMenu() {
+            document.getElementById('game-view').classList.remove('active');
+            document.getElementById('menu-view').classList.add('active');
+        }
+
+        function startGame(vars) {
+            currentVars = vars;
+            score = 0;
+            updateScore();
+            document.getElementById('menu-view').classList.remove('active');
+            document.getElementById('game-view').classList.add('active');
+            generateLevel();
+        }
+
+        // LÓGICA DEL JUEGO
+        function generateLevel() {
+            selectedMinterms.clear();
+            document.getElementById('feedback-msg').textContent = '';
+            
+            const totalCells = Math.pow(2, currentVars);
+            const numTargets = Math.floor(Math.random() * (totalCells / 2)) + 1; // 1 a mitad de celdas
+            
+            // Generar minitérminos aleatorios únicos
+            const available = Array.from({length: totalCells}, (_, i) => i);
+            targetMinterms = [];
+            for (let i = 0; i < numTargets; i++) {
+                const randIdx = Math.floor(Math.random() * available.length);
+                targetMinterms.push(available[randIdx]);
+                available.splice(randIdx, 1);
+            }
+            targetMinterms.sort((a, b) => a - b);
+
+            // Crear la expresión booleana
+            const expression = generateSOP(targetMinterms, currentVars);
+            const varsStr = currentVars === 2 ? "A,B" : currentVars === 3 ? "A,B,C" : "A,B,C,D";
+            document.getElementById('expression-display').innerHTML = `F(${varsStr}) = ${expression}`;
+
+            renderGrid();
+        }
+
+        // Convertir minitérmino a texto (Suma de Productos)
+        function generateSOP(minterms, vars) {
+            const varNames = ['A', 'B', 'C', 'D'];
+            const terms = minterms.map(m => {
+                // Convertir número a binario y rellenar con ceros (ej. 2 -> '010' para 3 vars)
+                const bin = m.toString(2).padStart(vars, '0');
+                let termStr = '';
+                for (let i = 0; i < vars; i++) {
+                    termStr += varNames[i] + (bin[i] === '0' ? "'" : "");
+                }
+                return termStr;
+            });
+            return terms.join(' + ');
+        }
+
+        // RENDERIZADO DEL MAPA
+        function renderGrid() {
+            const container = document.getElementById('kmap-container');
+            const layout = layouts[currentVars];
+            let html = '<table>';
+
+            // Fila de cabecera de columnas
+            html += `<tr><th colspan="2" rowspan="2"></th><th colspan="${layout.cols.length}" class="var-label">${layout.colLabel}</th></tr><tr>`;
+            layout.cols.forEach(c => html += `<th>${c}</th>`);
+            html += '</tr>';
+
+            // Filas de datos
+            layout.grid.forEach((row, rowIndex) => {
+                html += '<tr>';
+                if (rowIndex === 0) {
+                    html += `<th rowspan="${layout.rows.length}" class="var-label">${layout.rowLabel}</th>`;
+                }
+                html += `<th>${layout.rows[rowIndex]}</th>`;
+                
+                row.forEach(minterm => {
+                    html += `<td onclick="toggleCell(${minterm}, this)" id="cell-${minterm}">
+                                <span class="minterm-label">m${minterm}</span>
+                             </td>`;
+                });
+                html += '</tr>';
+            });
+
+            html += '</table>';
+            container.innerHTML = html;
+        }
+
+        // INTERACCIÓN Y VALIDACIÓN
+        function toggleCell(minterm, element) {
+            if (selectedMinterms.has(minterm)) {
+                selectedMinterms.delete(minterm);
+                element.classList.remove('selected');
+            } else {
+                selectedMinterms.add(minterm);
+                element.classList.add('selected');
+            }
+        }
+
+        function clearMap() {
+            selectedMinterms.clear();
+            document.querySelectorAll('td').forEach(td => td.classList.remove('selected'));
+            document.getElementById('feedback-msg').textContent = '';
+        }
+
+        function verifySelection() {
+            const selectedArr = Array.from(selectedMinterms).sort((a, b) => a - b);
+            const isCorrect = JSON.stringify(selectedArr) === JSON.stringify(targetMinterms);
+            const feedback = document.getElementById('feedback-msg');
+
+            if (isCorrect) {
+                score++;
+                updateScore();
+                feedback.textContent = '¡Correcto! Generando siguiente nivel...';
+                feedback.className = 'text-success';
+                setTimeout(generateLevel, 1500); // Avanza automáticamente después de 1.5s
+            } else {
+                feedback.textContent = 'Incorrecto. Revisa tu selección e inténtalo de nuevo.';
+                feedback.className = 'text-error';
+            }
+        }
+
+        function updateScore() {
+            document.getElementById('score').textContent = score;
+        }
+    </script>
+</body>
+</html>
